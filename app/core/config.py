@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     port: int = 8000
     cors_origins: str = "*"
     smooth_frames: int = 8
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.0-flash"
+    gemini_enabled: bool = True
 
     @property
     def cors_origin_list(self) -> List[str]:

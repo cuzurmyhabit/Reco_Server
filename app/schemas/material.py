@@ -4,6 +4,8 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
+from app.schemas.gemini_analysis import ContaminationInfo, RecyclableInfo
+
 
 class MaterialRatio(BaseModel):
     label: str = Field(..., examples=["플라스틱"])
@@ -55,6 +57,25 @@ class MaterialAnalyzeResponse(BaseModel):
     )
     chart_image_base64: Optional[str] = Field(
         default=None, description="도넛 차트 PNG (base64)"
+    )
+    # Gemini Vision AI
+    ai_enabled: bool = Field(default=False, description="AI 분석 결과 표시 여부")
+    ai_source: Optional[str] = Field(
+        default=None, description="gemini | local"
+    )
+    ai_summary: Optional[str] = Field(default=None, description="AI 한 줄 요약")
+    contamination: Optional[ContaminationInfo] = Field(
+        default=None, description="오염도 분석"
+    )
+    recyclable: Optional[RecyclableInfo] = Field(
+        default=None, description="재활용 가능 여부"
+    )
+    disposal_steps: List[str] = Field(
+        default_factory=list, description="맞춤형 분리배출 방법"
+    )
+    warnings: List[str] = Field(default_factory=list, description="주의사항")
+    ai_error: Optional[str] = Field(
+        default=None, description="Gemini 호출 실패 시 오류 메시지"
     )
 
 

@@ -20,8 +20,10 @@ def main() -> int:
 
     health = client.get("/api/v1/health")
     assert health.status_code == 200, health.text
-    assert health.json()["status"] == "ok"
-    print("OK  GET /api/v1/health")
+    health_body = health.json()
+    assert health_body["status"] == "ok"
+    assert "gemini" in health_body
+    print("OK  GET /api/v1/health", "gemini configured:", health_body["gemini"]["configured"])
 
     img = np.zeros((320, 240, 3), dtype=np.uint8)
     cv2.rectangle(img, (40, 40), (200, 280), (0, 180, 255), -1)
@@ -39,6 +41,8 @@ def main() -> int:
     assert "detail" in body and len(body["detail"]) == 5
     assert body["session_id"] == "smoke-test-session"
     assert "detections" in body
+    assert "ai_enabled" in body
+    assert "disposal_steps" in body
     total = sum(item["percent"] for item in body["summary"])
     assert 99.0 <= total <= 101.0, total
     print("OK  POST /api/v1/materials/analyze")

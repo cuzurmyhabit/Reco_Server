@@ -7,7 +7,7 @@ from typing import Dict, Optional
 import cv2
 import numpy as np
 
-MATERIAL_LABELS = ("플라스틱", "유리", "종이", "금속", "기타")
+from app.services.waste_taxonomy import MATERIAL_LABELS
 
 OBJECT_MATERIAL_PRIOR: Dict[str, Dict[str, float]] = {
     "wine glass": {"유리": 0.82, "기타": 0.18},

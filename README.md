@@ -26,5 +26,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 app/           # FastAPI + 분류/검출
 static/        # 웹 UI (index.html, css, js)
 output/        # 확정 시 캡처·차트 PNG
-scripts/       # (선택) 데스크톱 카메라 테스트
+scripts/       # train_trashnet.py, smoke_test.py
+models/        # TrashNet 학습 가중치 (선택)
 ```
+
+## 분류 엔진
+
+1. **CLIP** — 12종 쓰레기 텍스트 매칭 (페트병, 알루미늄 캔, 유리병, 종이 등)
+2. **비전 휴리스틱** — 은색 캔·유색 페트 등 형태/색 보정
+3. **TrashNet** (선택) — `scripts/train_trashnet.py` 실행 후 `models/trashnet_resnet18.pth` 생성
+
+```bash
+pip install -r requirements.txt
+PYTHONPATH=. python scripts/train_trashnet.py   # 약 10~20분, 최초 1회 데이터 다운로드
+```
+
+화면에 **「알루미늄 캔」「페트병」「유리병」** 처럼 종류가 바로 표시됩니다.

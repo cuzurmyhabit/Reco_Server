@@ -181,7 +181,8 @@ function drawOverlay(detections, locked) {
     ctx.stroke();
 
     // 5) 라벨 (중심 위)
-    const label = `${det.object_name_ko} → ${det.material} ${Math.round((det.confidence || 0) * 100)}%`;
+    const wasteName = det.waste_type_ko || det.object_name_ko || "물체";
+    const label = `${wasteName} · ${det.material} ${Math.round((det.confidence || 0) * 100)}%`;
     const ly = Math.max(y1 - 12, 22);
     ctx.font = "bold 15px Apple SD Gothic Neo, Malgun Gothic, sans-serif";
     const tw = ctx.measureText(label).width;
@@ -253,8 +254,9 @@ async function analyzeFrame() {
 
     drawDonut(summaryMap(body.summary));
 
+    const waste = body.waste_type_ko || "미확인";
     const mat = body.primary_material;
-    primaryLabel.textContent = `주요 재질: ${mat} (${Math.round(body.confidence * 100)}%)`;
+    primaryLabel.textContent = `${waste} (${mat} ${Math.round(body.confidence * 100)}%)`;
 
     if (body.locked) {
       chartCard.classList.add("locked");

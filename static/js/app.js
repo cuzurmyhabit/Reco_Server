@@ -1,4 +1,6 @@
 const API = "/api/v1";
+const ANALYZE_INTERVAL_MS = 2800;
+
 const COLORS = {
   플라스틱: "#5CB85C",
   유리: "#2E6B4E",
@@ -18,8 +20,26 @@ const capturePreview = document.getElementById("capturePreview");
 const chartCard = document.getElementById("chartCard");
 const btnStart = document.getElementById("btnStart");
 const btnStop = document.getElementById("btnStop");
+const aiBadge = document.getElementById("aiBadge");
+const aiSummary = document.getElementById("aiSummary");
+const contaminationBox = document.getElementById("contaminationBox");
+const contaminationLevel = document.getElementById("contaminationLevel");
+const contaminationDetail = document.getElementById("contaminationDetail");
+const recyclableBox = document.getElementById("recyclableBox");
+const recyclableLabel = document.getElementById("recyclableLabel");
+const recyclableReason = document.getElementById("recyclableReason");
+const disposalSteps = document.getElementById("disposalSteps");
+const warningsEl = document.getElementById("warnings");
+const aiCard = document.getElementById("aiCard");
+
+const CONTAMINATION_KO = {
+  clean: "깨끗함",
+  low: "경미 오염",
+  high: "심각 오염",
+};
 
 let stream = null;
+let geminiConfigured = null;
 let sessionId = null;
 let analyzeTimer = null;
 let rafId = null;
@@ -28,6 +48,66 @@ let lastLocked = false;
 
 function setStatus(msg) {
   statusEl.textContent = msg;
+}
+
+async function fetchGeminiStatus() {
+  try {
+    const res = await fetch(`${API}/health`);
+    if (!res.ok) return;
+    const body = await res.json();
+    geminiConfigured = body.gemini?.configured ?? false;
+    if (!geminiConfigured) {
+      aiBadge.textContent = "미설정";
+      aiBadge.className = "badge badge-warn";
+      aiSummary.textContent =
+        "GEMINI_API_KEY를 .env에 설정하면 오염도·재활용·분리배출 안내가 표시됩니다.";
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function updateAiPanel(body) {
+  if (body.ai_enabled && body.contamination) {
+    const src = body.ai_source || "local";
+    aiBadge.textContent = src === "gemini" ? "Gemini" : "로컬 AI";
+    aiBadge.className = "badge badge-ok";
+    aiCard.classList.add("ai-active");
+
+    const level = body.contamination.level || "low";
+    contaminationLevel.textContent = CONTAMINATION_KO[level] || level;
+    contaminationDetail.textContent = body.contamination.detail || "";
+    contaminationBox.className = `ai-box level-${level}`;
+
+    if (body.recyclable) {
+      recyclableLabel.textContent = body.recyclable.label || "—";
+      recyclableReason.textContent = body.recyclable.reason || "";
+      recyclableBox.className = `ai-box recyclable-${body.recyclable.possible ? "yes" : "no"}`;
+    }
+
+    aiSummary.textContent = body.ai_summary || "분석 완료";
+
+    disposalSteps.innerHTML = "";
+    (body.disposal_steps || []).forEach((step) => {
+      const li = document.createElement("li");
+      li.textContent = step.replace(/^\d+\.\s*/, "");
+      disposalSteps.appendChild(li);
+    });
+
+    warningsEl.innerHTML = "";
+    (body.warnings || []).forEach((w) => {
+      const li = document.createElement("li");
+      li.textContent = w;
+      warningsEl.appendChild(li);
+    });
+    warningsEl.classList.toggle("hidden", !(body.warnings || []).length);
+  } else if (geminiConfigured === false) {
+    aiBadge.textContent = "미설정";
+    aiBadge.className = "badge badge-warn";
+  } else {
+    aiBadge.textContent = "분석 중";
+    aiBadge.className = "badge";
+  }
 }
 
 function summaryMap(summary) {
@@ -240,7 +320,7 @@ async function analyzeFrame() {
 
   setStatus("분석 중…");
   try {
-    const res = await fetch(`${API}/materials/analyze`, {
+    const res = await fetch(`${API}/materials/analyze?use_gemini=true`, {
       method: "POST",
       headers,
       body: form,
@@ -258,9 +338,12 @@ async function analyzeFrame() {
     const mat = body.primary_material;
     primaryLabel.textContent = `${waste} (${mat} ${Math.round(body.confidence * 100)}%)`;
 
+    updateAiPanel(body);
+
     if (body.locked) {
       chartCard.classList.add("locked");
-      setStatus("인식 확정 — 캡처·차트 저장됨");
+      const aiNote = body.ai_enabled ? " · AI 분석 완료" : "";
+      setStatus(`인식 확정 — 캡처·차트 저장됨${aiNote}`);
       if (body.chart_image_base64) {
         capturePreview.src = `data:image/png;base64,${body.chart_image_base64}`;
         capturePreview.classList.remove("hidden");
@@ -268,7 +351,10 @@ async function analyzeFrame() {
     } else {
       chartCard.classList.remove("locked");
       const n = lastDetections.length;
-      setStatus(n ? `감지 ${n}개 — 점·선 표시 중` : "물체를 화면 중앙에 비춰 주세요");
+      const aiNote = body.ai_enabled ? " · Gemini 분석됨" : "";
+      setStatus(
+        n ? `감지 ${n}개 — 점·선 표시 중${aiNote}` : `물체를 화면 중앙에 비춰 주세요${aiNote}`
+      );
     }
   } catch (e) {
     setStatus(`오류: ${e.message}`);
@@ -277,7 +363,7 @@ async function analyzeFrame() {
 
 function startAnalyzeLoop() {
   stopAnalyzeLoop();
-  analyzeTimer = setInterval(analyzeFrame, 1000);
+  analyzeTimer = setInterval(analyzeFrame, ANALYZE_INTERVAL_MS);
   analyzeFrame();
 }
 
@@ -332,3 +418,4 @@ btnStop.addEventListener("click", stopCamera);
 
 drawDonut({ 플라스틱: 0, 유리: 0, 금속: 0, 기타: 100 });
 primaryLabel.textContent = "";
+fetchGeminiStatus();

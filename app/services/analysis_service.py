@@ -13,8 +13,11 @@ from app.schemas.material import (
     MaterialRatio,
     ObjectDetection,
 )
+from app.schemas.gemini_analysis import GeminiAnalysisResult
 from app.services.chart_generator import chart_to_base64, save_donut_chart
 from app.services.detection_analysis import DetectionAnalysisService, LabeledDetection
+from app.services.gemini_vision import GeminiVisionService
+from app.services.local_recycling_guide import build_local_analysis
 from app.services.waste_classifier import ClassificationResult, WasteClassifier
 from app.services.waste_taxonomy import MATERIAL_LABELS, SUMMARY_LABELS, to_summary
 
@@ -37,6 +40,8 @@ class AnalysisService:
         session_id: Optional[str] = None,
         *,
         save_on_lock: bool = True,
+        gemini: Optional[GeminiVisionService] = None,
+        mime_type: str = "image/jpeg",
     ) -> MaterialAnalyzeResponse:
         sid = session_id or str(uuid.uuid4())
         classifier = self._get_session_classifier(sid)
@@ -64,6 +69,36 @@ class AnalysisService:
                 sid, frame, result, top, labeled
             )
 
+        ai_result: Optional[GeminiAnalysisResult] = None
+        ai_source: Optional[str] = None
+        ai_error: Optional[str] = None
+
+        if gemini is not None and gemini.enabled:
+            ai_result, gemini_err = gemini.analyze_image_safe(
+                image_bytes,
+                mime_type=mime_type,
+                local_hint={
+                    "waste_type_ko": result.waste_type_ko,
+                    "primary_material": result.primary_material,
+                    "detections_count": len(labeled),
+                },
+            )
+            if ai_result is not None:
+                ai_source = "gemini"
+            elif gemini_err:
+                ai_error = gemini_err
+
+        if ai_result is None:
+            ai_result = build_local_analysis(
+                result.waste_type_ko,
+                result.primary_material,
+                frame=frame,
+            )
+            ai_source = "local"
+
+        if ai_result is not None:
+            result = _merge_gemini_result(result, ai_result)
+
         return _to_response(
             result,
             sid,
@@ -72,6 +107,9 @@ class AnalysisService:
             chart_path=chart_path,
             chart_base64=chart_b64,
             locked=locked,
+            gemini_result=ai_result,
+            gemini_error=ai_error if ai_source == "local" and ai_error else None,
+            ai_source=ai_source,
         )
 
     def reset_session(self, session_id: str) -> bool:
@@ -200,6 +238,32 @@ def _draw_simple_boxes(frame: np.ndarray, labeled: List[LabeledDetection]) -> np
     return frame
 
 
+def _merge_gemini_result(
+    local: ClassificationResult, gemini: GeminiAnalysisResult
+) -> ClassificationResult:
+    """Gemini 결과로 종류·재질 보정 (차트는 로컬 유지)."""
+    idx = {n: i for i, n in enumerate(MATERIAL_LABELS)}
+    detail = {label: 0.0 for label in MATERIAL_LABELS}
+    if gemini.material in idx:
+        detail[gemini.material] = 85.0
+        for label in MATERIAL_LABELS:
+            if label != gemini.material:
+                detail[label] = 15.0 / (len(MATERIAL_LABELS) - 1)
+    else:
+        detail = dict(local.detail)
+
+    summary = to_summary(detail)
+    primary = gemini.material if gemini.material in MATERIAL_LABELS else local.primary_material
+    return ClassificationResult(
+        summary=summary,
+        detail=detail,
+        primary_material=primary,
+        confidence=max(local.confidence, 0.75),
+        waste_type_id="gemini",
+        waste_type_ko=gemini.waste_type_ko,
+    )
+
+
 def _to_response(
     result: ClassificationResult,
     session_id: str,
@@ -209,6 +273,9 @@ def _to_response(
     chart_path: Optional[str] = None,
     chart_base64: Optional[str] = None,
     locked: bool = False,
+    gemini_result: Optional[GeminiAnalysisResult] = None,
+    gemini_error: Optional[str] = None,
+    ai_source: Optional[str] = None,
 ) -> MaterialAnalyzeResponse:
     if labeled is None:
         labeled = []
@@ -233,6 +300,13 @@ def _to_response(
         for d in labeled
     ]
 
+    ai_on = gemini_result is not None
+    warnings = list(gemini_result.warnings if gemini_result else [])
+    if ai_source == "local" and gemini_error == "quota":
+        warnings = [
+            "Gemini API 할당량 초과 — 로컬 AI(규칙·화면 분석)로 안내합니다.",
+            *warnings,
+        ]
     return MaterialAnalyzeResponse(
         summary=summary,
         detail=detail,
@@ -245,4 +319,12 @@ def _to_response(
         capture_path=capture_path,
         chart_path=chart_path,
         chart_image_base64=chart_base64,
+        ai_enabled=ai_on,
+        ai_source=ai_source,
+        ai_summary=gemini_result.summary if gemini_result else None,
+        contamination=gemini_result.contamination if gemini_result else None,
+        recyclable=gemini_result.recyclable if gemini_result else None,
+        disposal_steps=gemini_result.disposal_steps if gemini_result else [],
+        warnings=warnings,
+        ai_error=None,
     )

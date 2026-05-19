@@ -18,7 +18,21 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 - 웹캠 실시간 분석 (브라우저)
 - 검출 박스 + 꼭짓점·선 + 재질 라벨 (캔 → **금속**)
 - 인식 확정 시 화면 캡처 + **재질 분석** 도넛 차트 (`output/` 저장)
-- API: `POST /api/v1/materials/analyze`, Swagger `/docs`
+- **Gemini Vision AI** (API 키 설정 시)
+  - 재활용 쓰레기 **오염도** (깨끗함 / 경미 / 심각)
+  - **재활용 가능 여부** 및 근거
+  - 사진 맞춤 **분리배출 방법** (단계별 안내)
+- API: `POST /api/v1/materials/analyze?use_gemini=true`, Swagger `/docs`
+
+## Gemini 설정
+
+```bash
+cp .env.example .env
+# .env 에 GEMINI_API_KEY=your_key 입력
+```
+
+[Google AI Studio](https://aistudio.google.com/apikey)에서 API 키를 발급한 뒤 서버를 재시작하세요.
+웹 UI 오른쪽 **AI 분석** 패널에 오염도·재활용·분리배출 안내가 표시됩니다.
 
 ## 구조
 

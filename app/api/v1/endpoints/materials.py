@@ -1,8 +1,9 @@
 from typing import Optional
 
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
-from app.api.deps import AnalysisServiceDep
+from app.api.deps import AnalysisServiceDep, GeminiServiceDep, get_settings
+from app.core.config import Settings
 from app.schemas.material import MaterialAnalyzeResponse, MessageResponse
 
 router = APIRouter(prefix="/materials", tags=["materials"])
@@ -11,11 +12,14 @@ router = APIRouter(prefix="/materials", tags=["materials"])
 @router.post("/analyze", response_model=MaterialAnalyzeResponse)
 async def analyze_material(
     service: AnalysisServiceDep,
+    gemini: GeminiServiceDep,
+    settings: Settings = Depends(get_settings),
     image: UploadFile = File(..., description="카메라/업로드 이미지 (JPEG, PNG)"),
     x_session_id: Optional[str] = Header(
         default=None,
         description="연속 촬영 시 동일 세션 ID를 사용하면 비율이 평활화됩니다.",
     ),
+    use_gemini: bool = True,
 ) -> MaterialAnalyzeResponse:
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="이미지 파일만 업로드할 수 있습니다.")
@@ -25,7 +29,13 @@ async def analyze_material(
         raise HTTPException(status_code=400, detail="빈 파일입니다.")
 
     try:
-        return service.analyze(data, session_id=x_session_id)
+        run_gemini = use_gemini and settings.gemini_enabled and gemini.enabled
+        return service.analyze(
+            data,
+            session_id=x_session_id,
+            gemini=gemini if run_gemini else None,
+            mime_type=image.content_type or "image/jpeg",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

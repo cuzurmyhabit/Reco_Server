@@ -41,6 +41,7 @@ class LabeledDetection:
     object_name: str
     object_name_ko: str
     material: str
+    waste_type_ko: str
     confidence: float
     bbox: Tuple[int, int, int, int]
     corners: Tuple[Tuple[int, int], ...]
@@ -97,12 +98,15 @@ class DetectionAnalysisService:
             result = session_classifier.classify_bgr_instant(
                 crop, object_name=obj.object_name
             )
-            name_ko = _display_name_ko(obj.object_name, crop, result.primary_material)
+            name_ko = result.waste_type_ko or _display_name_ko(
+                obj.object_name, crop, result.primary_material
+            )
             labeled.append(
                 LabeledDetection(
                     object_name=obj.object_name,
                     object_name_ko=name_ko,
                     material=result.primary_material,
+                    waste_type_ko=result.waste_type_ko,
                     confidence=result.confidence,
                     bbox=obj.bbox,
                     corners=bbox_corners(obj.bbox),
@@ -115,12 +119,15 @@ class DetectionAnalysisService:
                 crop = _safe_crop(frame_bgr, fb)
                 if crop is not None:
                     result = session_classifier.classify_bgr_instant(crop)
-                    name_ko = _display_name_ko("object", crop, result.primary_material)
+                    name_ko = result.waste_type_ko or _display_name_ko(
+                        "object", crop, result.primary_material
+                    )
                     labeled.append(
                         LabeledDetection(
                             object_name="object",
                             object_name_ko=name_ko,
                             material=result.primary_material,
+                            waste_type_ko=result.waste_type_ko,
                             confidence=result.confidence,
                             bbox=fb,
                             corners=bbox_corners(fb),

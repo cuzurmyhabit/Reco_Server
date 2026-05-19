@@ -14,7 +14,8 @@ class ObjectDetection(BaseModel):
     """화면에 그릴 검출 결과 — 박스 꼭짓점 + 재질 라벨."""
 
     object_name: str = Field(..., description="COCO 객체 이름 (예: bottle)")
-    object_name_ko: str = Field(..., description="한글 객체 이름 (예: 병)")
+    object_name_ko: str = Field(..., description="한글 객체 이름 (예: 페트병)")
+    waste_type_ko: str = Field(default="", description="구체적 쓰레기 종류 (예: 알루미늄 캔)")
     material: str = Field(..., description="인식 재질 (예: 플라스틱)")
     confidence: float = Field(..., ge=0, le=1)
     bbox: List[int] = Field(..., description="[x1, y1, x2, y2] 픽셀 좌표")
@@ -33,6 +34,7 @@ class MaterialAnalyzeResponse(BaseModel):
         description="플라스틱·유리·종이·금속·기타"
     )
     primary_material: str = Field(..., examples=["플라스틱"])
+    waste_type_ko: str = Field(default="미확인", description="주요 쓰레기 종류 (예: 알루미늄 캔)")
     confidence: float = Field(..., ge=0, le=1, description="주요 재질 신뢰도(0~1)")
     session_id: Optional[str] = Field(
         default=None, description="연속 프레임 평활화에 사용한 세션 ID"

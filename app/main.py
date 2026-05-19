@@ -26,9 +26,11 @@ async def lifespan(_: FastAPI):
     ok, encoded = cv2.imencode(".jpg", blank)
     if ok:
         service.analyze(encoded.tobytes())
+        from app.services.clip_classifier import predict_clip
         from app.services.object_detector import ObjectDetector
 
         ObjectDetector().detect(blank)
+        predict_clip(blank)
     yield
 
 

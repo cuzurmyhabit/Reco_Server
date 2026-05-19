@@ -15,12 +15,8 @@ from app.schemas.material import (
 )
 from app.services.chart_generator import chart_to_base64, save_donut_chart
 from app.services.detection_analysis import DetectionAnalysisService, LabeledDetection
-from app.services.waste_classifier import (
-    SUMMARY_LABELS,
-    MATERIAL_LABELS,
-    ClassificationResult,
-    WasteClassifier,
-)
+from app.services.waste_classifier import ClassificationResult, WasteClassifier
+from app.services.waste_taxonomy import MATERIAL_LABELS, SUMMARY_LABELS, to_summary
 
 OUTPUT_DIR = Path(__file__).resolve().parents[2] / "output"
 LOCK_CONFIDENCE = 0.52
@@ -99,7 +95,7 @@ class AnalysisService:
             self._stable[session_id] = {"key": None, "streak": 0, "saved": False}
             return False, None, None, None
 
-        key = f"{top.material}:{top.object_name_ko}"
+        key = f"{top.waste_type_ko}:{top.material}"
         state = self._stable.get(session_id, {"key": None, "streak": 0, "saved": False})
 
         if state.get("key") == key and not state.get("saved"):
@@ -141,8 +137,6 @@ def _aggregate_from_detections(
     labeled: List[LabeledDetection],
 ) -> ClassificationResult:
     """검출된 물체들의 재질을 합쳐 전체 비율 산출."""
-    from app.services.waste_classifier import _to_summary
-
     detail_acc = {label: 0.0 for label in MATERIAL_LABELS}
     total_w = 0.0
     for det in labeled:
@@ -173,13 +167,16 @@ def _aggregate_from_detections(
             detail[k] = round(detail[k] / other_sum * remain, 1)
         detail["금속"] = round(100.0 - sum(detail[k] for k in others), 1)
 
-    summary = _to_summary(detail)
+    summary = to_summary(detail)
     primary = max(MATERIAL_LABELS, key=lambda k: detail[k])
+    top_det = max(labeled, key=lambda d: d.confidence)
     return ClassificationResult(
         summary=summary,
         detail=detail,
         primary_material=primary,
         confidence=round(detail[primary] / 100.0, 4),
+        waste_type_id="aggregated",
+        waste_type_ko=top_det.waste_type_ko or top_det.object_name_ko,
     )
 
 
@@ -195,7 +192,7 @@ def _draw_simple_boxes(frame: np.ndarray, labeled: List[LabeledDetection]) -> np
         x1, y1, x2, y2 = det.bbox
         c = colors.get(det.material, (100, 220, 100))
         cv2.rectangle(frame, (x1, y1), (x2, y2), c, 2)
-        label = f"{det.object_name_ko} {det.material}"
+        label = f"{det.waste_type_ko or det.object_name_ko} ({det.material})"
         cv2.putText(
             frame, label, (x1, max(y1 - 8, 16)),
             cv2.FONT_HERSHEY_SIMPLEX, 0.55, c, 2, cv2.LINE_AA,
@@ -227,6 +224,7 @@ def _to_response(
         ObjectDetection(
             object_name=d.object_name,
             object_name_ko=d.object_name_ko,
+            waste_type_ko=d.waste_type_ko or d.object_name_ko,
             material=d.material,
             confidence=d.confidence,
             bbox=list(d.bbox),
@@ -239,6 +237,7 @@ def _to_response(
         summary=summary,
         detail=detail,
         primary_material=result.primary_material,
+        waste_type_ko=result.waste_type_ko,
         confidence=result.confidence,
         session_id=session_id,
         detections=detections,

@@ -241,19 +241,16 @@ def _draw_simple_boxes(frame: np.ndarray, labeled: List[LabeledDetection]) -> np
 def _merge_gemini_result(
     local: ClassificationResult, gemini: GeminiAnalysisResult
 ) -> ClassificationResult:
-    """Gemini 결과로 종류·재질 보정 (차트는 로컬 유지)."""
-    idx = {n: i for i, n in enumerate(MATERIAL_LABELS)}
-    detail = {label: 0.0 for label in MATERIAL_LABELS}
-    if gemini.material in idx:
-        detail[gemini.material] = 85.0
-        for label in MATERIAL_LABELS:
-            if label != gemini.material:
-                detail[label] = 15.0 / (len(MATERIAL_LABELS) - 1)
-    else:
-        detail = dict(local.detail)
+    
+    detail = dict(local.detail)
+    summary = dict(local.summary)
 
-    summary = to_summary(detail)
-    primary = gemini.material if gemini.material in MATERIAL_LABELS else local.primary_material
+    primary = (
+        gemini.material
+        if gemini.material in MATERIAL_LABELS
+        else local.primary_material
+    )
+   
     return ClassificationResult(
         summary=summary,
         detail=detail,

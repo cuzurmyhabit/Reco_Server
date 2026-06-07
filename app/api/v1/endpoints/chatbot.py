@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Literal, Optional
 
 import google.generativeai as genai
@@ -24,7 +25,9 @@ BIUM_SYSTEM_PROMPT = """당신은 분리수거·재활용 도우미 챗봇 \"비
 - 한국어 존댓말, 이모지 금지.
 - 전체 길이는 한국어 기준 200자 이내.
 - 2~4문장 또는 핵심 단계 최대 3개. 군더더기·인사말·재질 설명 등 부가 설명 금지.
-- 단계가 필요한 경우 \"1. ... 2. ... 3. ...\" 형식으로 한 단계당 1문장 이내.
+- **마크다운 문법 금지**: `**굵게**`, `*기울임*`, `_밑줄_`, 백틱, # 제목 등 어떤 마크다운 기호도 쓰지 말고 일반 텍스트만 사용합니다.
+- 단계가 필요하면 한 단계를 한 줄에 적습니다. 줄마다 \"1. <행동>: <간단 설명>\" 형식이며, 단계 사이에는 반드시 줄바꿈(\\n)을 넣습니다.
+- 도입 문장(한 문장)을 먼저 쓰고 줄바꿈 후 단계를 나열합니다. 한 줄에 여러 단계를 이어붙이지 않습니다.
 
 주제 제한 (매우 중요):
 - 분리수거·재활용·쓰레기 배출과 무관한 질문(날씨, 건강, 코딩, 일상잡담, 인물 등)에는 답하지 말고 정확히 다음 한 줄만 출력하세요:
@@ -97,6 +100,41 @@ def _truncate(text: str, limit: int = MAX_REPLY_CHARS) -> str:
         if idx >= int(limit * 0.6):
             return cut[: idx + 1].rstrip() + "…"
     return cut + "…"
+
+
+_MD_BOLD_RE = re.compile(r"\*\*(.+?)\*\*", re.DOTALL)
+_MD_BOLD2_RE = re.compile(r"__(.+?)__", re.DOTALL)
+_MD_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)([^*\n]+?)\*(?!\*)")
+_MD_ITALIC2_RE = re.compile(r"(?<!_)_(?!_)([^_\n]+?)_(?!_)")
+_MD_INLINE_CODE_RE = re.compile(r"`+([^`\n]+?)`+")
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_BULLET_RE = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
+_NUMBER_STEP_RE = re.compile(r"(?<!\n)\s*(?=\d+\.\s)")
+_MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
+_SPACE_AROUND_NL_RE = re.compile(r"[ \t]*\n[ \t]*")
+
+
+def _strip_markdown(text: str) -> str:
+    text = _MD_BOLD_RE.sub(r"\1", text)
+    text = _MD_BOLD2_RE.sub(r"\1", text)
+    text = _MD_ITALIC_RE.sub(r"\1", text)
+    text = _MD_ITALIC2_RE.sub(r"\1", text)
+    text = _MD_INLINE_CODE_RE.sub(r"\1", text)
+    text = _MD_HEADING_RE.sub("", text)
+    text = _MD_BULLET_RE.sub("- ", text)
+    return text
+
+
+def _format_reply(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = _strip_markdown(text)
+    cleaned = _NUMBER_STEP_RE.sub("\n", cleaned)
+    cleaned = _SPACE_AROUND_NL_RE.sub("\n", cleaned)
+    cleaned = _MULTI_NEWLINE_RE.sub("\n\n", cleaned)
+    lines = [ln.rstrip() for ln in cleaned.split("\n")]
+    lines = [ln for ln in lines if ln != ""] or [""]
+    return "\n".join(lines).strip()
 
 
 class ChatMessage(BaseModel):
@@ -193,7 +231,7 @@ async def chatbot_message(req: ChatRequest) -> ChatResponse:
 
     if not settings.gemini_enabled or not settings.gemini_api_key:
         return ChatResponse(
-            reply=_truncate(local_reply(history)),
+            reply=_format_reply(_truncate(local_reply(history))),
             source="local",
             notice="Gemini가 비활성화되어 로컬 분리수거 안내로 응답 중이에요.",
         )
@@ -202,12 +240,16 @@ async def chatbot_message(req: ChatRequest) -> ChatResponse:
         reply = _try_gemini(history, settings.gemini_model)
         if "[OFF_TOPIC]" in reply or reply.strip() == "OFF_TOPIC":
             return ChatResponse(reply=OFF_TOPIC_REPLY, source="gemini", notice=None)
-        return ChatResponse(reply=_truncate(reply), source="gemini", notice=None)
+        return ChatResponse(
+            reply=_format_reply(_truncate(reply)),
+            source="gemini",
+            notice=None,
+        )
     except Exception as exc:
         msg = str(exc)
         logger.warning("Gemini 호출 실패, 로컬 폴백으로 전환: %s", msg)
         return ChatResponse(
-            reply=_truncate(local_reply(history)),
+            reply=_format_reply(_truncate(local_reply(history))),
             source="local",
             notice=_notice_for_error(msg),
         )

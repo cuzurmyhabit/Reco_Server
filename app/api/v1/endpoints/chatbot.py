@@ -13,23 +13,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chatbot", tags=["Chatbot"])
 
 
-BIUM_SYSTEM_PROMPT = """당신은 친근한 분리수거·재활용 도우미 챗봇 \"비움이\"입니다.
+BIUM_SYSTEM_PROMPT = """당신은 분리수거·재활용 도우미 챗봇 \"비움이\"입니다.
 
 역할:
-- 대한민국 분리배출 기준에 맞게 사용자에게 알기 쉬운 안내를 제공합니다.
-- 플라스틱, 유리, 종이, 금속, 비닐, 일반쓰레기, 음식물 등 다양한 품목의 분리수거 방법을 설명합니다.
-- 라벨 제거, 헹굼, 압착 등 구체적인 행동 단계를 안내합니다.
-- 헷갈리는 품목(예: 영수증, 치킨 박스, 깨진 유리)에 대해 정확하게 안내합니다.
+- 대한민국 분리배출 기준에 맞춰 핵심만 짧게 안내합니다.
+- 플라스틱, 유리, 종이, 금속, 비닐, 일반쓰레기, 음식물 등 품목별 배출 방법.
+- 헷갈리는 품목(예: 영수증, 치킨 박스, 깨진 유리)도 간결히 알려줍니다.
 
-말투:
-- 정중한 존댓말을 사용합니다.
-- 짧고 명확하게 답변합니다 (3~6문장 이내).
-- 필요한 경우 번호 매긴 단계로 안내합니다.
-- 이모지는 사용하지 않습니다.
+응답 형식 (반드시 지키세요):
+- 한국어 존댓말, 이모지 금지.
+- 전체 길이는 한국어 기준 200자 이내.
+- 2~4문장 또는 핵심 단계 최대 3개. 군더더기·인사말·재질 설명 등 부가 설명 금지.
+- 단계가 필요한 경우 \"1. ... 2. ... 3. ...\" 형식으로 한 단계당 1문장 이내.
 
-금지:
-- 분리수거·재활용·환경·쓰레기와 무관한 주제는 \"저는 분리수거를 도와드리는 비움이예요. 그 주제는 답변하기 어려워요.\"라고 정중히 거절합니다.
-- 추측이 어려울 땐 \"정확한 안내가 어려운 품목이에요. 거주 지역 분리수거 안내를 확인해 주세요.\"라고 답합니다."""
+주제 제한 (매우 중요):
+- 분리수거·재활용·쓰레기 배출과 무관한 질문(날씨, 건강, 코딩, 일상잡담, 인물 등)에는 답하지 말고 정확히 다음 한 줄만 출력하세요:
+[OFF_TOPIC]
+- 위 토큰 외 어떤 텍스트도 같이 출력하지 마세요.
+
+추측이 어려운 품목은 \"정확한 안내가 어려워요. 거주 지역 분리수거 안내를 확인해 주세요.\"라고 한 줄로 답합니다."""
 
 
 _FALLBACK_MODELS = (
@@ -37,6 +39,64 @@ _FALLBACK_MODELS = (
     "gemini-2.0-flash-lite",
     "gemini-flash-latest",
 )
+
+
+MAX_REPLY_CHARS = 220
+
+OFF_TOPIC_REPLY = (
+    "저는 분리수거를 도와드리는 비움이예요. 그 질문은 답변할 수 없어요.\n"
+    "분리배출·재활용에 관한 질문을 해주세요.\n"
+    "예시)\n"
+    "- 페트병은 어떻게 버려야 하나요?\n"
+    "- 영수증도 종이류로 분리수거 되나요?\n"
+    "- 치킨 박스 분리배출 방법 알려주세요."
+)
+
+
+_TRASH_KEYWORDS: tuple = (
+    "분리", "재활용", "쓰레기", "배출", "버려", "버리", "처리", "수거", "종량제",
+    "페트", "플라스틱", "비닐", "봉투", "봉지", "랩",
+    "종이", "박스", "신문", "노트", "우유팩", "종이팩", "감열", "코팅", "영수증",
+    "캔", "알루미늄", "통조림", "부탄",
+    "유리", "병", "소주", "맥주", "와인", "깨진",
+    "음식", "잔반", "음식물",
+    "스티로폼", "형광등", "전구", "건전지", "배터리", "마스크",
+    "옷", "의류", "신발", "컵", "빨대", "라벨", "헹굼", "압축",
+    "비움",
+)
+
+_GREETING_KEYWORDS: tuple = (
+    "안녕", "반가", "처음", "고마", "감사", "도와", "도움",
+    "hi", "hello",
+)
+
+
+def _last_user_text(history: List[dict]) -> str:
+    for item in reversed(history):
+        if item.get("role") == "user":
+            return (item.get("text") or "").strip()
+    return ""
+
+
+def _is_trash_related(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    if any(k in lowered for k in _GREETING_KEYWORDS):
+        return True
+    return any(k in lowered for k in _TRASH_KEYWORDS)
+
+
+def _truncate(text: str, limit: int = MAX_REPLY_CHARS) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rstrip()
+    for sep in ("\n", ". ", ".", "!", "?", " "):
+        idx = cut.rfind(sep)
+        if idx >= int(limit * 0.6):
+            return cut[: idx + 1].rstrip() + "…"
+    return cut + "…"
 
 
 class ChatMessage(BaseModel):
@@ -83,9 +143,9 @@ def _try_gemini(history: List[dict], primary_model: str) -> str:
             response = model.generate_content(
                 contents,
                 generation_config=genai.GenerationConfig(
-                    temperature=0.7,
-                    top_p=0.95,
-                    max_output_tokens=512,
+                    temperature=0.4,
+                    top_p=0.9,
+                    max_output_tokens=180,
                 ),
             )
             text = (response.text or "").strip()
@@ -127,21 +187,27 @@ async def chatbot_message(req: ChatRequest) -> ChatResponse:
             notice=None,
         )
 
+    last_user = _last_user_text(history)
+    if last_user and not _is_trash_related(last_user):
+        return ChatResponse(reply=OFF_TOPIC_REPLY, source="local", notice=None)
+
     if not settings.gemini_enabled or not settings.gemini_api_key:
         return ChatResponse(
-            reply=local_reply(history),
+            reply=_truncate(local_reply(history)),
             source="local",
             notice="Gemini가 비활성화되어 로컬 분리수거 안내로 응답 중이에요.",
         )
 
     try:
         reply = _try_gemini(history, settings.gemini_model)
-        return ChatResponse(reply=reply, source="gemini", notice=None)
+        if "[OFF_TOPIC]" in reply or reply.strip() == "OFF_TOPIC":
+            return ChatResponse(reply=OFF_TOPIC_REPLY, source="gemini", notice=None)
+        return ChatResponse(reply=_truncate(reply), source="gemini", notice=None)
     except Exception as exc:
         msg = str(exc)
         logger.warning("Gemini 호출 실패, 로컬 폴백으로 전환: %s", msg)
         return ChatResponse(
-            reply=local_reply(history),
+            reply=_truncate(local_reply(history)),
             source="local",
             notice=_notice_for_error(msg),
         )

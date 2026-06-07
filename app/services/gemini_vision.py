@@ -158,6 +158,53 @@ class GeminiVisionService:
                 return None, "denied"
             return None, f"gemini:{msg[:120]}"
 
+    def reanalyze(
+        self,
+        previous_result: dict,
+        additional_answers: list,
+        question_type: str,
+    ) -> GeminiAnalysisResult:
+        if not self.enabled:
+            raise RuntimeError("GEMINI_API_KEY가 설정되지 않았습니다.")
+
+        model = self._get_model(self.model_name)
+        prompt = f"""
+당신은 대한민국 분리배출 전문가입니다.
+
+기존 분석 결과:
+{json.dumps(previous_result, ensure_ascii=False)}
+
+추가 질문 답변:
+{json.dumps(additional_answers, ensure_ascii=False)}
+
+질문 유형:
+{question_type}
+
+사용자의 답변을 반영하여 기존 분석 결과를 재검토하세요.
+반드시 아래 JSON 형식만 반환하세요.
+
+{{
+  "waste_type_ko": "예: 페트병",
+  "material": "플라스틱|유리|종이|금속|기타",
+  "contamination": {{
+    "level": "clean|low|high",
+    "score": 0,
+    "detail": "오염 상태 설명"
+  }},
+  "recyclable": {{
+    "possible": true,
+    "label": "재활용 가능",
+    "reason": "근거"
+  }},
+  "disposal_steps": ["1. ...", "2. ..."],
+  "warnings": [],
+  "summary": "한 줄 요약"
+}}
+"""
+        response = model.generate_content(prompt)
+        text = (response.text or "").strip()
+        return _to_result(_parse_json(text))
+
 
 def _parse_json(text: str) -> Dict[str, Any]:
     try:

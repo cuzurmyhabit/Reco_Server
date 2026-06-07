@@ -81,3 +81,9 @@ class MaterialAnalyzeResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class ReanalyzeRequest(BaseModel):
+    previous_result: dict
+    additional_answers: list
+    question_type: str

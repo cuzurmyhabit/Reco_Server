@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 
 from app.api.deps import AnalysisServiceDep, GeminiServiceDep, get_settings
 from app.core.config import Settings
-from app.schemas.material import MaterialAnalyzeResponse, MessageResponse
+from app.schemas.material import MaterialAnalyzeResponse, MessageResponse, ReanalyzeRequest
 
 router = APIRouter(prefix="/materials", tags=["materials"])
 
@@ -38,6 +38,18 @@ async def analyze_material(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/reanalyze")
+async def reanalyze_material(
+    request: ReanalyzeRequest,
+    gemini: GeminiServiceDep,
+):
+    return gemini.reanalyze(
+        request.previous_result,
+        request.additional_answers,
+        request.question_type,
+    )
 
 
 @router.delete("/sessions/{session_id}", response_model=MessageResponse)
